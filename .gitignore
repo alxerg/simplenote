@@ -21,3 +21,5 @@ _testmain.go
 
 *.exe
 *.test
+
+download_all/download_all
