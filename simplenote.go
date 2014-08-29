@@ -204,6 +204,22 @@ func httpPost(u string, body string) ([]byte, error) {
 	return d, nil
 }
 
+func httpDelete(urlStr string) error {
+	req, err := http.NewRequest("DELETE", urlStr, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	//fmt.Printf("%#v\n", resp)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("status code %d (not 200)", resp.StatusCode)
+	}
+	return nil
+}
+
 func (s *Api) getToken() (string, error) {
 	if s.token != "" {
 		return s.token, nil
@@ -384,6 +400,9 @@ func (api *Api) TrashNote(key string) (*Note, error) {
 	if err != nil {
 		return nil, err
 	}
+	if n.IsDeleted {
+		return n, nil
+	}
 	dn := &apiNewNote{
 		Key:     n.Key,
 		Deleted: 1,
@@ -392,6 +411,17 @@ func (api *Api) TrashNote(key string) (*Note, error) {
 }
 
 func (api *Api) DeleteNote(key string) error {
-	// TODO: implement me
-	return nil
+	// according to python version, the note must first be trash
+	_, err := api.TrashNote(key)
+	if err != nil {
+		return err
+	}
+
+	authParam, err := api.getAuthUrlParams()
+	if err != nil {
+		return err
+	}
+
+	urlStr := dataUrl + fmt.Sprintf("/%s?%s", key, authParam)
+	return httpDelete(urlStr)
 }

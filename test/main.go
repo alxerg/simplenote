@@ -79,18 +79,13 @@ func deleteAllNotes() {
 	if len(notes) == 0 {
 		return
 	}
-	for i, ni := range notes {
-		if i == 0 {
-			testTrashNote(ni.Key)
-		}
+	for _, ni := range notes {
 		err = api.DeleteNote(ni.Key)
 		fatalIfErr(err)
 	}
 	notes, err = api.GetNoteList()
 	fatalIfErr(err)
-	if len(notes) == 0 {
-		panic(fmt.Sprintf("len(notes) = %d and not 0", len(notes)))
-	}
+	panicif(len(notes) != 0)
 }
 
 func main() {
