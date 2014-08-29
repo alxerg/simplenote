@@ -93,6 +93,7 @@ func main() {
 	api = simplenote.New(USER, PWD)
 	deleteAllNotes()
 	c := "this is a note"
+	c2 := "content 2"
 	note, err := api.AddNote(c, nil)
 	fatalIfErr(err)
 	panicif(note.Content != c)
@@ -101,6 +102,10 @@ func main() {
 	panicif(len(notes) != 1)
 	n1 := notes[0]
 	panicif(note.Key != n1.Key)
+
+	err = api.UpdateContent(note.Key, c2)
+	fatalIfErr(err)
+
 	deleteAllNotes()
 	fmt.Printf("finished\n")
 }

@@ -110,6 +110,13 @@ func intToBool(n int) bool {
 	return true
 }
 
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 func timeToStr(t time.Time) string {
 	f := float64(t.UnixNano()) / 1000000000
 	return fmt.Sprintf("%.9f", f)
@@ -346,22 +353,33 @@ func (api *Api) GetNoteLatestVersion(key string) (*Note, error) {
 	return api.GetNote(key, -1)
 }
 
-func (api *Api) addUpdateNoteRaw(note *apiNewNote) (*Note, error) {
+// TODO: change note to map[string]interface{}
+func (api *Api) addUpdateNoteRaw(update map[string]interface{}) (*Note, error) {
+	var ok bool
 	authParam, err := api.getAuthUrlParams()
 	if err != nil {
 		return nil, err
 	}
 	var urlStr string
-	if note.Key != "" {
+	keyI, hasKey := update["key"]
+	key := ""
+	if hasKey {
+		key, ok = keyI.(string)
+		if !ok {
+			v := update["key"]
+			return nil, fmt.Errorf("%T %v is not string", v, v)
+		}
+	}
+	content, hasContent := update["content"]
+	if key != "" {
 		// this is update, so set modifydate
-		timeStr := timeToStr(time.Now())
-		note.ModifyDate = timeStr
-		urlStr = dataUrl + "/" + note.Key + "?" + authParam
+		update["modifydate"] = timeToStr(time.Now())
+		urlStr = dataUrl + "/" + key + "?" + authParam
 	} else {
 		urlStr = dataUrl + "?" + authParam
 	}
 
-	js, err := json.Marshal(note)
+	js, err := json.Marshal(update)
 	if err != nil {
 		return nil, err
 	}
@@ -382,17 +400,35 @@ func (api *Api) addUpdateNoteRaw(note *apiNewNote) (*Note, error) {
 	}
 	// returned json response doesn't return the content, so set it to
 	// what we've sent
-	res.Content = note.Content
+	if hasContent {
+		res.Content = content.(string)
+	}
 	return res.toNote(), nil
 }
 
 func (api *Api) AddNote(content string, tags []string) (*Note, error) {
-	n := &apiNewNote{
-		Content: content,
-		Tags:    tags,
-		Deleted: 0,
+	update := make(map[string]interface{})
+	update["content"] = content
+	if len(tags) > 0 {
+		update["tags"] = tags
 	}
-	return api.addUpdateNoteRaw(n)
+	return api.addUpdateNoteRaw(update)
+}
+
+func (api *Api) UpdateContent(key string, content string) error {
+	update := make(map[string]interface{})
+	update["key"] = key
+	update["content"] = content
+	_, err := api.addUpdateNoteRaw(update)
+	return err
+}
+
+func (api *Api) UpdateTags(key string, tags []string) error {
+	update := make(map[string]interface{})
+	update["key"] = key
+	update["content"] = tags
+	_, err := api.addUpdateNoteRaw(update)
+	return err
 }
 
 func (api *Api) TrashNote(key string) (*Note, error) {
@@ -403,11 +439,24 @@ func (api *Api) TrashNote(key string) (*Note, error) {
 	if n.IsDeleted {
 		return n, nil
 	}
-	dn := &apiNewNote{
-		Key:     n.Key,
-		Deleted: 1,
+	update := make(map[string]interface{})
+	update["key"] = key
+	update["deleted"] = 1
+	return api.addUpdateNoteRaw(update)
+}
+
+func (api *Api) RestoreNote(key string) (*Note, error) {
+	n, err := api.GetNoteLatestVersion(key)
+	if err != nil {
+		return nil, err
 	}
-	return api.addUpdateNoteRaw(dn)
+	if !n.IsDeleted {
+		return n, nil
+	}
+	update := make(map[string]interface{})
+	update["key"] = key
+	update["deleted"] = 0
+	return api.addUpdateNoteRaw(update)
 }
 
 func (api *Api) DeleteNote(key string) error {
