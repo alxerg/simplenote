@@ -9,6 +9,7 @@ It downloads all your notes and saves them in a single file notes.txt.
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/kjk/simplenote"
@@ -19,20 +20,26 @@ func usage() {
 }
 
 func main() {
-	var sn *simplenote.Api
+	var api *simplenote.Api
 	if true {
 		if len(os.Args) != 3 {
 			usage()
 			return
 		}
-		sn = simplenote.New(os.Args[1], os.Args[2])
+		api = simplenote.New(os.Args[1], os.Args[2])
 	} else {
-		sn = simplenote.New("foo@bar.com", "password")
+		api = simplenote.New("foo@bar.com", "password")
 	}
-	notes, err := sn.GetNoteList()
+	notes, err := api.GetNoteListWithLimit(5)
 	if err != nil {
-		fmt.Printf("sn.GetNoteList() returned %q\n", err)
+		log.Fatalf("api.GetNoteList() returned %q", err)
 	} else {
 		fmt.Printf("You have %d notes\n", len(notes))
 	}
+	key := notes[0].Key
+	note, err := api.GetNoteLatestVersion(key)
+	if err != nil {
+		log.Fatalf("api.GetNote(%q) failed with %q", key, err)
+	}
+	fmt.Printf("\n%s\n", note.Content)
 }

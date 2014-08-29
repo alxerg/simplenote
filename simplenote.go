@@ -1,5 +1,7 @@
 package simplenote
 
+// based on https://github.com/mrtazz/simplenote.py
+
 import (
 	"encoding/base64"
 	"encoding/json"
@@ -24,6 +26,17 @@ type Api struct {
 	token string
 }
 
+type NoteInfo struct {
+	Key        string
+	CreateDate time.Time
+	ModifyDate time.Time
+	Tags       []string
+	IsDeleted  bool
+	SystemTags []string
+	Version    int
+	SyncNum    int
+}
+
 type apiNoteInfo struct {
 	ModifyDate string   `json:"modifydate"`
 	Tags       []string `json:"tags"`
@@ -36,15 +49,45 @@ type apiNoteInfo struct {
 	MinVersion int      `json:"minversion"`
 }
 
-type NoteInfo struct {
-	Key        string
-	CreateDate time.Time
+type Note struct {
 	ModifyDate time.Time
 	Tags       []string
 	IsDeleted  bool
+	CreateDate time.Time
 	SystemTags []string
+	Content    string
 	Version    int
 	SyncNum    int
+	Key        string
+	MinVersion int
+}
+
+type apiNote struct {
+	ModifyDate string   `json:"modifydate"`
+	Tags       []string `json:"tags"`
+	Deleted    int      `json:"deleted"`
+	CreateDate string   `json:"createdate"`
+	SystemTags []string `json:"systemtags"`
+	Content    string   `json:"content"`
+	Version    int      `json:"version"`
+	SyncNum    int      `json:"syncnum"`
+	Key        string   `json:"key"`
+	MinVersion int      `json:"minversion"`
+}
+
+func (n *apiNote) toNote() *Note {
+	return &Note{
+		ModifyDate: strToTime(n.ModifyDate),
+		Tags:       n.Tags,
+		IsDeleted:  intToBool(n.Deleted),
+		CreateDate: strToTime(n.CreateDate),
+		SystemTags: n.SystemTags,
+		Content:    n.Content,
+		Version:    n.Version,
+		SyncNum:    n.SyncNum,
+		Key:        n.Key,
+		MinVersion: n.MinVersion,
+	}
 }
 
 func intToBool(n int) bool {
@@ -64,8 +107,8 @@ func strToTime(st string) time.Time {
 	return time.Now()
 }
 
-func (a *apiNoteInfo) ToNoteInfo() NoteInfo {
-	return NoteInfo{
+func (a *apiNoteInfo) toNoteInfo() *NoteInfo {
+	return &NoteInfo{
 		Key:        a.Key,
 		CreateDate: strToTime(a.CreateDate),
 		ModifyDate: strToTime(a.ModifyDate),
@@ -140,20 +183,20 @@ func (s *Api) getToken() (string, error) {
 	values := base64.StdEncoding.EncodeToString([]byte(auth_params))
 	token, err := httpPostWithBody(AUTH_URL, values)
 	if err != nil {
-		fmt.Printf("getToken: httpGetWithBody(%q,%q) failed with %q\n", AUTH_URL, values, err)
+		//fmt.Printf("getToken: httpGetWithBody(%q,%q) failed with %q\n", AUTH_URL, values, err)
 		return "", err
 	}
-	fmt.Printf("token: %q\n", string(token))
+	//fmt.Printf("token: %q\n", string(token))
 	s.token = string(token)
 	return s.token, nil
 }
 
-func (s *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse, error) {
-	token, err := s.getToken()
+func (api *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse, error) {
+	token, err := api.getToken()
 	if err != nil {
 		return nil, err
 	}
-	params := fmt.Sprintf("auth=%s&email=%s&length=%d", url.QueryEscape(token), url.QueryEscape(s.user), NOTES_TO_FETCH)
+	params := fmt.Sprintf("auth=%s&email=%s&length=%d", url.QueryEscape(token), url.QueryEscape(api.user), NOTES_TO_FETCH)
 	if !since.IsZero() {
 		params += "&since=" + since.Format("2006-01-02")
 	}
@@ -166,7 +209,7 @@ func (s *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse
 		return nil, err
 	}
 	var res apiNoteListResponse
-	fmt.Printf("resp: \n%s\n", string(body))
+	//fmt.Printf("resp: \n%s\n", string(body))
 	err = json.Unmarshal(body, &res)
 	if err != nil {
 		return nil, err
@@ -174,19 +217,29 @@ func (s *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse
 	return &res, nil
 }
 
-func (s *Api) GetNoteList() ([]*NoteInfo, error) {
+func reachedLimit(n, limit int) bool {
+	if limit == -1 {
+		return false
+	}
+	return n > limit
+}
+
+// if limit is -1, no limit
+func (api *Api) GetNoteListWithLimit(limit int) ([]*NoteInfo, error) {
 	var zeroTime time.Time
 	res := make([]*NoteInfo, 0)
 	mark := ""
 	for {
-		rsp, err := s.getNoteListRaw(mark, zeroTime)
+		rsp, err := api.getNoteListRaw(mark, zeroTime)
 		if err != nil {
 			// TODO: return as much as we got?
 			return nil, err
 		}
 		for _, ani := range rsp.Data {
-			ni := ani.ToNoteInfo()
-			res = append(res, &ni)
+			res = append(res, ani.toNoteInfo())
+			if reachedLimit(len(res), limit) {
+				return res, nil
+			}
 		}
 		mark = rsp.Mark
 		if mark == "" {
@@ -195,4 +248,45 @@ func (s *Api) GetNoteList() ([]*NoteInfo, error) {
 		// TODO: also break if len(rsp.Data) == 0 ?
 	}
 	return res, nil
+}
+
+func (api *Api) GetNoteList() ([]*NoteInfo, error) {
+	return api.GetNoteListWithLimit(-1)
+}
+
+// if version is -1, return latest version
+func (api *Api) getNoteRaw(key string, version int) (*apiNote, error) {
+	token, err := api.getToken()
+	if err != nil {
+		return nil, err
+	}
+
+	ver := ""
+	if version != -1 {
+		ver = fmt.Sprintf("/%d", version)
+	}
+	params := fmt.Sprintf("/%s%s?auth=%s&email=%s", key, ver, url.QueryEscape(token), url.QueryEscape(api.user))
+	body, err := httpGet(DATA_URL + params)
+	if err != nil {
+		return nil, err
+	}
+	//fmt.Printf("\nnote:\n%s\n", string(body))
+	var res apiNote
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (api *Api) GetNote(key string, version int) (*Note, error) {
+	note, err := api.getNoteRaw(key, version)
+	if err != nil {
+		return nil, err
+	}
+	return note.toNote(), nil
+}
+
+func (api *Api) GetNoteLatestVersion(key string) (*Note, error) {
+	return api.GetNote(key, -1)
 }
