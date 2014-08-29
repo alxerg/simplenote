@@ -102,6 +102,11 @@ func floatToTime(ft float64) time.Time {
 	return time.Now()
 }
 
+func timeToStr(t time.Time) string {
+	f := float64(t) / 1000000000
+	return fmt.Sprintf("%.6f", f)
+}
+
 func strToTime(st string) time.Time {
 	// TODO: write me
 	return time.Now()
