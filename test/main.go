@@ -96,6 +96,11 @@ func main() {
 	note, err := api.AddNote(c, nil)
 	fatalIfErr(err)
 	panicif(note.Content != c)
-	//fmt.Printf("new note: %s\n", note.Key)
+	notes, err := api.GetNoteList()
+	fatalIfErr(err)
+	panicif(len(notes) != 1)
+	n1 := notes[0]
+	panicif(note.Key != n1.Key)
+	deleteAllNotes()
 	fmt.Printf("finished\n")
 }
