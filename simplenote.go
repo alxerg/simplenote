@@ -14,10 +14,13 @@ import (
 )
 
 const (
-	AUTH_URL       = "https://simple-note.appspot.com/api/login"
-	DATA_URL       = "https://simple-note.appspot.com/api2/data"
-	INDEX_URL      = "https://simple-note.appspot.com/api2/index?"
-	NOTES_TO_FETCH = 100
+	AUTH_URL  = "https://simple-note.appspot.com/api/login"
+	DATA_URL  = "https://simple-note.appspot.com/api2/data"
+	INDEX_URL = "https://simple-note.appspot.com/api2/index?"
+)
+
+var (
+	NotesPerRequestsCount int = 100
 )
 
 type Api struct {
@@ -37,12 +40,19 @@ type NoteInfo struct {
 	SyncNum    int
 }
 
+type apiNewNote struct {
+	Key        string   `json:"key,omitempty"`
+	Content    string   `json:"content"`
+	Tags       []string `json:"tags,omitempty"`
+	ModifyDate string   `json:"modifydate,omitempty"`
+}
+
 type apiNoteInfo struct {
 	ModifyDate string   `json:"modifydate"`
-	Tags       []string `json:"tags"`
+	Tags       []string `json:"tags,omitempty"`
 	Deleted    int      `json:"deleted"`
 	CreateDate string   `json:"createdate"`
-	SystemTags []string `json:"systemtags"`
+	SystemTags []string `json:"systemtags,omitempty"`
 	Version    int      `json:"version"`
 	SyncNum    int      `json:"syncnum"`
 	Key        string   `json:"key"`
@@ -103,7 +113,7 @@ func floatToTime(ft float64) time.Time {
 }
 
 func timeToStr(t time.Time) string {
-	f := float64(t) / 1000000000
+	f := float64(t.UnixNano()) / 1000000000
 	return fmt.Sprintf("%.6f", f)
 }
 
@@ -155,7 +165,7 @@ func httpGet(u string) ([]byte, error) {
 	return d, nil
 }
 
-func httpPostWithBody(u string, body string) ([]byte, error) {
+func httpPost(u string, body string) ([]byte, error) {
 	r := strings.NewReader(body)
 	req, err := http.NewRequest("POST", u, r)
 	if err != nil {
@@ -172,6 +182,7 @@ func httpPostWithBody(u string, body string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
+		fmt.Printf("%#v\n", resp)
 		return nil, fmt.Errorf("status code %d (not 200), msg: %q", resp.StatusCode, string(d))
 	}
 	return d, nil
@@ -186,7 +197,7 @@ func (s *Api) getToken() (string, error) {
 
 	// TODO: use base64.URLEncoding ?
 	values := base64.StdEncoding.EncodeToString([]byte(auth_params))
-	token, err := httpPostWithBody(AUTH_URL, values)
+	token, err := httpPost(AUTH_URL, values)
 	if err != nil {
 		//fmt.Printf("getToken: httpGetWithBody(%q,%q) failed with %q\n", AUTH_URL, values, err)
 		return "", err
@@ -196,12 +207,20 @@ func (s *Api) getToken() (string, error) {
 	return s.token, nil
 }
 
-func (api *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse, error) {
+func (api *Api) getAuthUrlParams() (string, error) {
 	token, err := api.getToken()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("auth=%s&email=%s", url.QueryEscape(token), url.QueryEscape(api.user)), nil
+}
+
+func (api *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse, error) {
+	authParam, err := api.getAuthUrlParams()
 	if err != nil {
 		return nil, err
 	}
-	params := fmt.Sprintf("auth=%s&email=%s&length=%d", url.QueryEscape(token), url.QueryEscape(api.user), NOTES_TO_FETCH)
+	params := fmt.Sprintf("%s&length=%d", authParam, NotesPerRequestsCount)
 	if !since.IsZero() {
 		params += "&since=" + since.Format("2006-01-02")
 	}
@@ -261,21 +280,19 @@ func (api *Api) GetNoteList() ([]*NoteInfo, error) {
 
 // if version is -1, return latest version
 func (api *Api) getNoteRaw(key string, version int) (*apiNote, error) {
-	token, err := api.getToken()
+	authParam, err := api.getAuthUrlParams()
 	if err != nil {
 		return nil, err
 	}
-
 	ver := ""
 	if version != -1 {
 		ver = fmt.Sprintf("/%d", version)
 	}
-	params := fmt.Sprintf("/%s%s?auth=%s&email=%s", key, ver, url.QueryEscape(token), url.QueryEscape(api.user))
+	params := fmt.Sprintf("/%s%s?%s", key, ver, authParam)
 	body, err := httpGet(DATA_URL + params)
 	if err != nil {
 		return nil, err
 	}
-	//fmt.Printf("\nnote:\n%s\n", string(body))
 	var res apiNote
 	err = json.Unmarshal(body, &res)
 	if err != nil {
@@ -294,4 +311,57 @@ func (api *Api) GetNote(key string, version int) (*Note, error) {
 
 func (api *Api) GetNoteLatestVersion(key string) (*Note, error) {
 	return api.GetNote(key, -1)
+}
+
+func (api *Api) addUpdateNoteRaw(note *apiNewNote) (*Note, error) {
+	authParam, err := api.getAuthUrlParams()
+	if err != nil {
+		return nil, err
+	}
+	var urlStr string
+	if note.Key != "" {
+		// this is update, so set modifydate
+		timeStr := timeToStr(time.Now())
+		note.ModifyDate = timeStr
+		urlStr = DATA_URL + "/" + note.Key + "?" + authParam
+	} else {
+		urlStr = DATA_URL + "?" + authParam
+	}
+
+	js, err := json.Marshal(note)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("url: %q\n js:\n%s\n", urlStr, string(js))
+	// Note: python version does urllib.quote(values)
+	s := url.QueryEscape(string(js))
+	d, err := httpPost(urlStr, s)
+	if err != nil {
+		//fmt.Printf("getToken: httpGetWithBody(%q,%q) failed with %q\n", AUTH_URL, values, err)
+		return nil, err
+	}
+	//fmt.Printf("%s\n", string(d))
+	// TODO: write a function for that?
+	var res apiNote
+	err = json.Unmarshal(d, &res)
+	if err != nil {
+		return nil, err
+	}
+	// returned json response doesn't return the content, so set it to
+	// what we've sent
+	res.Content = note.Content
+	return res.toNote(), nil
+}
+
+func (api *Api) AddNote(content string, tags []string) (*Note, error) {
+	n := &apiNewNote{
+		Content: content,
+		Tags:    tags,
+	}
+	return api.addUpdateNoteRaw(n)
+}
+
+func (api *Api) DeleteNote(key string) error {
+	// TODO: implement me
+	return nil
 }

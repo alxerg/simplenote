@@ -36,6 +36,9 @@ func main() {
 	} else {
 		fmt.Printf("You have %d notes\n", len(notes))
 	}
+	if len(notes) == 0 {
+		return
+	}
 	key := notes[0].Key
 	note, err := api.GetNoteLatestVersion(key)
 	if err != nil {
