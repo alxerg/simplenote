@@ -6,7 +6,6 @@ Test program to exercise the APIs
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -22,10 +21,19 @@ var (
 	api *simplenote.Api
 )
 
-func fatalIfErr(err error) {
-	if err != nil {
-		log.Fatal(err.Error())
+func panicif(cond bool) {
+	if cond {
+		panic("error")
 	}
+}
+
+func fatalIfErr(err error) {
+	if err == nil {
+		return
+	}
+	s := err.Error()
+	fmt.Println(s)
+	panic(s)
 }
 
 func strShorten(s string, max int) string {
@@ -44,7 +52,7 @@ func dumpNotes() {
 			fmt.Print("----------------------------\n")
 		}
 		fmt.Printf("Key: %s\n", ni.Key)
-		fmt.Printf("Creation date: %s\n", ni.CreateDate.Format(time.RFC1123))
+		fmt.Printf("Creation date: %s\n", ni.CreateDate.Format(time.RFC3339))
 		if len(ni.Tags) > 0 {
 			fmt.Printf("Tags: %s\n", strings.Join(ni.Tags, ","))
 		}
@@ -54,13 +62,34 @@ func dumpNotes() {
 	}
 }
 
+func testTrashNote(key string) {
+	n, err := api.TrashNote(key)
+	fatalIfErr(err)
+	if !n.IsDeleted {
+		panic(fmt.Sprint("%#v is not deleted\n", n))
+	} else {
+		//fmt.Printf("%s has been trashed\n", key)
+	}
+}
+
 func deleteAllNotes() {
 	dumpNotes()
-	notes, err := api.GetNoteListWithLimit(5)
+	notes, err := api.GetNoteList()
 	fatalIfErr(err)
-	for _, ni := range notes {
+	if len(notes) == 0 {
+		return
+	}
+	for i, ni := range notes {
+		if i == 0 {
+			testTrashNote(ni.Key)
+		}
 		err = api.DeleteNote(ni.Key)
 		fatalIfErr(err)
+	}
+	notes, err = api.GetNoteList()
+	fatalIfErr(err)
+	if len(notes) == 0 {
+		panic(fmt.Sprintf("len(notes) = %d and not 0", len(notes)))
 	}
 }
 
@@ -68,8 +97,10 @@ func main() {
 	fmt.Printf("starting\n")
 	api = simplenote.New(USER, PWD)
 	deleteAllNotes()
-	note, err := api.AddNote("this is a note", nil)
+	c := "this is a note"
+	note, err := api.AddNote(c, nil)
 	fatalIfErr(err)
-	fmt.Printf("%#v\n", note)
+	panicif(note.Content != c)
+	//fmt.Printf("new note: %s\n", note.Key)
 	fmt.Printf("finished\n")
 }
