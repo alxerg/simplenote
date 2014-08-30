@@ -4,19 +4,36 @@ package main
 This is an example of how to use Simplenote API to download all
 notes.
 
-It downloads all your notes and saves them in a single file notes.txt.
+It downloads all your notes and prints them to stdout.
 */
 
 import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/kjk/simplenote"
 )
 
 func usage() {
 	fmt.Printf("usage: download_all username password\n")
+}
+
+func joined(tags []string) string {
+	return strings.Join(tags, ",")
+}
+
+func dumpNote(n *simplenote.Note) {
+	fmt.Printf("Key: %s\n", n.Key)
+	fmt.Printf("Creation date: %s\n", n.CreateDate.Format(time.RFC3339))
+	fmt.Printf("Modification date: %s\n", n.ModifyDate.Format(time.RFC3339))
+	fmt.Printf("Version: %d\n", n.Version)
+	if len(n.Tags) > 0 {
+		fmt.Printf("Tags: %s\n", joined(n.Tags))
+	}
+	fmt.Printf("Content: %d\n%s\n", len(n.Content), n.Content)
 }
 
 func main() {
@@ -30,19 +47,16 @@ func main() {
 	} else {
 		api = simplenote.New("foo@bar.com", "password")
 	}
-	notes, err := api.GetNoteListWithLimit(5)
+	notes, err := api.GetNoteList()
 	if err != nil {
 		log.Fatalf("api.GetNoteList() returned %q", err)
-	} else {
-		fmt.Printf("You have %d notes\n", len(notes))
 	}
-	if len(notes) == 0 {
-		return
+	fmt.Printf("You have %d notes\n", len(notes))
+	for _, ni := range notes {
+		note, err := api.GetNoteLatestVersion(ni.Key)
+		if err != nil {
+			log.Fatalf("api.GetNoteLatestVersion(%q) failed with %q", ni.Key, err)
+		}
+		dumpNote(note)
 	}
-	key := notes[0].Key
-	note, err := api.GetNoteLatestVersion(key)
-	if err != nil {
-		log.Fatalf("api.GetNote(%q) failed with %q", key, err)
-	}
-	fmt.Printf("\n%s\n", note.Content)
 }
