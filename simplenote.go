@@ -172,18 +172,44 @@ func New(user, pwd string) *Api {
 	}
 }
 
-func httpGet(u string) ([]byte, error) {
+func httpGet2(u string) (int, []byte, error) {
 	resp, err := http.Get(u)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	d, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		return 0, nil, err
+	}
+	return resp.StatusCode, d, nil
+}
+
+func httpGet(u string) ([]byte, error) {
+	statusCode, d, err := httpGet2(u)
+	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status code %d (not 200)", resp.StatusCode)
+	if statusCode != 200 {
+		return nil, fmt.Errorf("status code %d (not 200) for %q", statusCode, u)
+	}
+	return d, nil
+}
+
+func httpGetRetry(u string) ([]byte, error) {
+	statusCode, d, err := httpGet2(u)
+	if err != nil {
+		return nil, err
+	}
+	if statusCode == 500 {
+		//fmt.Printf("Retrying %q\n", u)
+		// unfortunately, simplenote requires this ridiculosly long backoff
+		// time aftar a failing request
+		time.Sleep(time.Second * 30)
+		statusCode, d, err = httpGet2(u)
+	}
+	if statusCode != 200 {
+		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, u)
 	}
 	return d, nil
 }
@@ -206,7 +232,7 @@ func httpPost(u string, body string) ([]byte, error) {
 	}
 	if resp.StatusCode != 200 {
 		//fmt.Printf("%#v\n", resp)
-		return nil, fmt.Errorf("status code %d (not 200), msg: %q", resp.StatusCode, string(d))
+		return nil, fmt.Errorf("POST status code %d (not 200), url: msg: %q", resp.StatusCode, u, string(d))
 	}
 	return d, nil
 }
@@ -238,7 +264,7 @@ func (s *Api) getToken() (string, error) {
 	values := base64.StdEncoding.EncodeToString([]byte(auth_params))
 	token, err := httpPost(authUrl, values)
 	if err != nil {
-		//fmt.Printf("getToken: httpGetWithBody(%q,%q) failed with %q\n", authUrl, values, err)
+		//fmt.Printf("getToken: httpPost(%q,%q) failed with %q\n", authUrl, values, err)
 		return "", err
 	}
 	//fmt.Printf("token: %q\n", string(token))
@@ -267,7 +293,7 @@ func (api *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListRespon
 		params += fmt.Sprintf("&mark=%s", url.QueryEscape(mark))
 	}
 
-	body, err := httpGet(indexUrl + params)
+	body, err := httpGetRetry(indexUrl + params)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +414,7 @@ func (api *Api) addUpdateNoteRaw(update map[string]interface{}) (*Note, error) {
 	s := url.QueryEscape(string(js))
 	d, err := httpPost(urlStr, s)
 	if err != nil {
-		//fmt.Printf("getToken: httpGetWithBody(%q,%q) failed with %q\n", authUrl, values, err)
+		//fmt.Printf("getToken: httpPost(%q,%q) failed with %q\n", authUrl, values, err)
 		return nil, err
 	}
 	//fmt.Printf("%s\n", string(d))

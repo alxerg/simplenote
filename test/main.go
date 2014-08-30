@@ -88,8 +88,7 @@ func deleteAllNotes() {
 	panicif(len(notes) != 0)
 }
 
-func main() {
-	fmt.Printf("starting\n")
+func testAll() {
 	api = simplenote.New(USER, PWD)
 	deleteAllNotes()
 	c := "this is a note"
@@ -107,5 +106,22 @@ func main() {
 	fatalIfErr(err)
 
 	deleteAllNotes()
+}
+
+func testListNotes() {
+	toWait := time.Second * 10
+	api = simplenote.New(USER, PWD)
+	for i := 0; i < 20; i++ {
+		_, err := api.GetNoteList()
+		fatalIfErr(err)
+		fmt.Printf(".")
+		time.Sleep(toWait)
+	}
+}
+
+func main() {
+	fmt.Printf("starting\n")
+	//testListNotes()
+	testAll()
 	fmt.Printf("finished\n")
 }
