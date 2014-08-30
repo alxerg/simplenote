@@ -43,22 +43,39 @@ func strShorten(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-func dumpNotes() {
-	notes, err := api.GetNoteListWithLimit(5)
-	fatalIfErr(err)
+func joined(tags []string) string {
+	return strings.Join(tags, ",")
+}
+
+func dumpNote(n *simplenote.Note) {
+	fmt.Printf("Key: %s\n", n.Key)
+	fmt.Printf("Creation     date: %s\n", n.CreateDate.Format(time.RFC3339))
+	fmt.Printf("Modification date: %s\n", n.ModifyDate.Format(time.RFC3339))
+	fmt.Printf("Version: %d\n", n.Version)
+	if len(n.Tags) > 0 {
+		fmt.Printf("Tags: %s\n", joined(n.Tags))
+	}
+	fmt.Printf("Content: %s\n", strShorten(n.Content, 72))
+}
+
+func dumpNoteInfo(ni *simplenote.NoteInfo) {
+	fmt.Printf("Key: %s\n", ni.Key)
+	fmt.Printf("Creation date: %s\n", ni.CreateDate.Format(time.RFC3339))
+	fmt.Printf("Version: %d\n", ni.Version)
+	if len(ni.Tags) > 0 {
+		fmt.Printf("Tags: %s\n", joined(ni.Tags))
+	}
+	//n, err := api.GetNoteLatestVersion(ni.Key)
+	//fatalIfErr(err)
+}
+
+func dumpNotes(notes []*simplenote.NoteInfo) {
 	fmt.Printf("have %d notes\n", len(notes))
 	for i, ni := range notes {
 		if i != 0 {
 			fmt.Print("----------------------------\n")
 		}
-		fmt.Printf("Key: %s\n", ni.Key)
-		fmt.Printf("Creation date: %s\n", ni.CreateDate.Format(time.RFC3339))
-		if len(ni.Tags) > 0 {
-			fmt.Printf("Tags: %s\n", strings.Join(ni.Tags, ","))
-		}
-		n, err := api.GetNoteLatestVersion(ni.Key)
-		fatalIfErr(err)
-		fmt.Printf("Content: %s\n", strShorten(n.Content, 72))
+		dumpNoteInfo(ni)
 	}
 }
 
@@ -73,12 +90,12 @@ func testTrashNote(key string) {
 }
 
 func deleteAllNotes() {
-	dumpNotes()
 	notes, err := api.GetNoteList()
 	fatalIfErr(err)
 	if len(notes) == 0 {
 		return
 	}
+	dumpNotes(notes)
 	for _, ni := range notes {
 		err = api.DeleteNote(ni.Key)
 		fatalIfErr(err)
@@ -88,9 +105,18 @@ func deleteAllNotes() {
 	panicif(len(notes) != 0)
 }
 
+func findNoteInfoWithKey(notes []*simplenote.NoteInfo, key string) *simplenote.NoteInfo {
+	for _, ni := range notes {
+		if ni.Key == key {
+			return ni
+		}
+	}
+	return nil
+}
+
 func testAll() {
 	api = simplenote.New(USER, PWD)
-	deleteAllNotes()
+	//deleteAllNotes()
 	c := "this is a note"
 	c2 := "content 2"
 	note, err := api.AddNote(c, nil)
@@ -98,30 +124,38 @@ func testAll() {
 	panicif(note.Content != c)
 	notes, err := api.GetNoteList()
 	fatalIfErr(err)
-	panicif(len(notes) != 1)
-	n1 := notes[0]
-	panicif(note.Key != n1.Key)
-
-	err = api.UpdateContent(note.Key, c2)
+	//panicif(len(notes) != 1)
+	key := note.Key
+	n1 := findNoteInfoWithKey(notes, key)
+	panicif(n1 == nil)
+	err = api.UpdateContent(key, c2)
 	fatalIfErr(err)
-
+	note, err = api.GetNoteLatestVersion(key)
+	fatalIfErr(err)
+	panicif(note.Content != c2)
+	panicif(note.Version != 2)
+	tags := []string{"foo", "bar"}
+	err = api.UpdateTags(key, tags)
+	fatalIfErr(err)
+	note, err = api.GetNoteLatestVersion(key)
+	fatalIfErr(err)
+	panicif(note.Content != c2)
+	panicif(note.Version != 3)
+	dumpNote(note)
 	deleteAllNotes()
 }
 
 func testListNotes() {
-	toWait := time.Second * 10
 	api = simplenote.New(USER, PWD)
 	for i := 0; i < 20; i++ {
 		_, err := api.GetNoteList()
 		fatalIfErr(err)
 		fmt.Printf(".")
-		time.Sleep(toWait)
 	}
 }
 
 func main() {
 	fmt.Printf("starting\n")
-	//testListNotes()
 	testAll()
 	fmt.Printf("finished\n")
 }

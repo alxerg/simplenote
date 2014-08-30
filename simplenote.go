@@ -191,7 +191,7 @@ func httpGet(u string) ([]byte, error) {
 		return nil, err
 	}
 	if statusCode != 200 {
-		return nil, fmt.Errorf("status code %d (not 200) for %q", statusCode, u)
+		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, u)
 	}
 	return d, nil
 }
@@ -237,18 +237,43 @@ func httpPost(u string, body string) ([]byte, error) {
 	return d, nil
 }
 
-func httpDelete(urlStr string) error {
+func httpDelete2(urlStr string) (int, error) {
 	req, err := http.NewRequest("DELETE", urlStr, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		return 0, err
+	}
+	return resp.StatusCode, nil
+}
+
+func httpDelete(urlStr string) error {
+	//fmt.Printf("%#v\n", resp)
+	statusCode, err := httpDelete2(urlStr)
+	if err != nil {
 		return err
 	}
-	//fmt.Printf("%#v\n", resp)
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("status code %d (not 200)", resp.StatusCode)
+	if statusCode != 200 {
+		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, urlStr)
+	}
+	return nil
+}
+
+func httpDeleteRetry(urlStr string) error {
+	statusCode, err := httpDelete2(urlStr)
+	if err != nil {
+		return err
+	}
+	if statusCode == 500 {
+		// unfortunately, simplenote requires this ridiculosly long backoff
+		// time aftar a failing request
+		time.Sleep(time.Second * 30)
+		statusCode, err = httpDelete2(urlStr)
+	}
+	if statusCode != 200 {
+		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, urlStr)
 	}
 	return nil
 }
@@ -452,7 +477,7 @@ func (api *Api) UpdateContent(key string, content string) error {
 func (api *Api) UpdateTags(key string, tags []string) error {
 	update := make(map[string]interface{})
 	update["key"] = key
-	update["content"] = tags
+	update["tags"] = tags
 	_, err := api.addUpdateNoteRaw(update)
 	return err
 }
@@ -498,5 +523,5 @@ func (api *Api) DeleteNote(key string) error {
 	}
 
 	urlStr := dataUrl + fmt.Sprintf("/%s?%s", key, authParam)
-	return httpDelete(urlStr)
+	return httpDeleteRetry(urlStr)
 }
