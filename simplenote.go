@@ -1,6 +1,7 @@
 package simplenote
 
 // api docs: https://simperium.com/docs/reference/http/
+// for even newer api: https://github.com/Simperium/simperium-protocol/blob/master/SYNCING.md#index-i
 
 import (
 	"encoding/json"
