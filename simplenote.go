@@ -1,175 +1,30 @@
 package simplenote
 
-// based on https://github.com/mrtazz/simplenote.py
+// api docs: https://simperium.com/docs/reference/http/
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	authUrl  = "https://simple-note.appspot.com/api/login"
-	dataUrl  = "https://simple-note.appspot.com/api2/data"
-	indexUrl = "https://simple-note.appspot.com/api2/index?"
-	zeros    = "0000000000"
+	simpleNoteAppId  = "chalk-bump-f49"
+	authUrl2         = "https://auth.simperium.com/1/"
+	apiUrl2          = "https://api.simperium.com/1/"
+	tokenHeaderName  = "X-Simperium-Token"
+	apiKeyHeaderName = "X-Simperium-API-Key"
+	bucketName       = "Note"
 )
-
-var (
-	NotesPerRequestsCount int = 100
-)
-
-type Api struct {
-	user  string
-	pwd   string
-	token string
-}
-
-type NoteInfo struct {
-	Key        string
-	CreateDate time.Time
-	ModifyDate time.Time
-	Tags       []string
-	IsDeleted  bool
-	SystemTags []string
-	Version    int
-	SyncNum    int
-}
-
-type apiNewNote struct {
-	Key        string   `json:"key,omitempty"`
-	Content    string   `json:"content,omitempty""`
-	Tags       []string `json:"tags,omitempty"`
-	ModifyDate string   `json:"modifydate,omitempty"`
-	Deleted    int      `json:"deleted"`
-}
-
-type apiNoteInfo struct {
-	ModifyDate string   `json:"modifydate"`
-	Tags       []string `json:"tags,omitempty"`
-	Deleted    int      `json:"deleted"`
-	CreateDate string   `json:"createdate"`
-	SystemTags []string `json:"systemtags,omitempty"`
-	Version    int      `json:"version"`
-	SyncNum    int      `json:"syncnum"`
-	Key        string   `json:"key"`
-	MinVersion int      `json:"minversion"`
-}
-
-type Note struct {
-	ModifyDate time.Time
-	Tags       []string
-	IsDeleted  bool
-	CreateDate time.Time
-	SystemTags []string
-	Content    string
-	Version    int
-	SyncNum    int
-	Key        string
-	MinVersion int
-}
-
-type apiNote struct {
-	ModifyDate string   `json:"modifydate"`
-	Tags       []string `json:"tags"`
-	Deleted    int      `json:"deleted"`
-	CreateDate string   `json:"createdate"`
-	SystemTags []string `json:"systemtags"`
-	Content    string   `json:"content"`
-	Version    int      `json:"version"`
-	SyncNum    int      `json:"syncnum"`
-	Key        string   `json:"key"`
-	MinVersion int      `json:"minversion"`
-}
-
-func (n *apiNote) toNote() *Note {
-	return &Note{
-		ModifyDate: strToTime(n.ModifyDate),
-		Tags:       n.Tags,
-		IsDeleted:  intToBool(n.Deleted),
-		CreateDate: strToTime(n.CreateDate),
-		SystemTags: n.SystemTags,
-		Content:    n.Content,
-		Version:    n.Version,
-		SyncNum:    n.SyncNum,
-		Key:        n.Key,
-		MinVersion: n.MinVersion,
-	}
-}
-
-func intToBool(n int) bool {
-	if n == 0 {
-		return false
-	}
-	return true
-}
-
-func boolToInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
-}
 
 func timeToStr(t time.Time) string {
 	f := float64(t.UnixNano()) / 1000000000
 	return fmt.Sprintf("%.9f", f)
-}
-
-func strToTime(st string) time.Time {
-	parts := strings.Split(st, ".")
-	if len(parts) != 2 {
-		return time.Now()
-	}
-	secs, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return time.Now()
-	}
-
-	nsStr := parts[1]
-	n := 9 - len(nsStr)
-	if n < 0 {
-		return time.Now()
-	}
-	nsStr += zeros[:n]
-	ns, err := strconv.ParseInt(nsStr, 10, 64)
-	if err != nil {
-		return time.Now()
-	}
-	return time.Unix(secs, ns)
-}
-
-func (a *apiNoteInfo) toNoteInfo() *NoteInfo {
-	return &NoteInfo{
-		Key:        a.Key,
-		CreateDate: strToTime(a.CreateDate),
-		ModifyDate: strToTime(a.ModifyDate),
-		Tags:       a.Tags,
-		IsDeleted:  intToBool(a.Deleted),
-		SystemTags: a.SystemTags,
-		Version:    a.Version,
-		SyncNum:    a.SyncNum,
-	}
-}
-
-type apiNoteListResponse struct {
-	Count int            `json:"count"`
-	Data  []*apiNoteInfo `json:"data"`
-	Time  string         `json:"time"`
-	Mark  string         `json:"mark"`
-}
-
-func New(user, pwd string) *Api {
-	return &Api{
-		user: user,
-		pwd:  pwd,
-	}
 }
 
 func httpGet2(u string) (int, []byte, error) {
@@ -177,12 +32,31 @@ func httpGet2(u string) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	return httpReadResponse(resp)
+}
+
+func httpReadResponse(resp *http.Response) (int, []byte, error) {
 	defer resp.Body.Close()
 	d, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return 0, nil, err
 	}
 	return resp.StatusCode, d, nil
+}
+
+func httpReadReq(req *http.Request) ([]byte, error) {
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	statusCode, d, err := httpReadResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	if statusCode != 200 {
+		return nil, fmt.Errorf("status code %d (not 200) for %s", statusCode, req.URL)
+	}
+	return d, nil
 }
 
 func httpGet(u string) ([]byte, error) {
@@ -220,21 +94,7 @@ func httpPost(u string, body string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	d, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != 200 {
-		//fmt.Printf("%#v\n", resp)
-		return nil, fmt.Errorf("POST status code %d (not 200), url: msg: %q", resp.StatusCode, u, string(d))
-	}
-	return d, nil
+	return httpReadReq(req)
 }
 
 func httpDelete2(urlStr string) (int, error) {
@@ -278,250 +138,238 @@ func httpDeleteRetry(urlStr string) error {
 	return nil
 }
 
-func (s *Api) getToken() (string, error) {
-	if s.token != "" {
-		return s.token, nil
-	}
-
-	auth_params := fmt.Sprintf("email=%s&password=%s", s.user, s.pwd)
-
-	// TODO: use base64.URLEncoding ?
-	values := base64.StdEncoding.EncodeToString([]byte(auth_params))
-	token, err := httpPost(authUrl, values)
-	if err != nil {
-		//fmt.Printf("getToken: httpPost(%q,%q) failed with %q\n", authUrl, values, err)
-		return "", err
-	}
-	//fmt.Printf("token: %q\n", string(token))
-	s.token = string(token)
-	return s.token, nil
+type loginResponse struct {
+	UserName    string `json:"username"`
+	AccessToken string `json:"access_token"`
+	UserID      string `json:"userid"`
 }
 
-func (api *Api) getAuthUrlParams() (string, error) {
-	token, err := api.getToken()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("auth=%s&email=%s", url.QueryEscape(token), url.QueryEscape(api.user)), nil
+type NoteID struct {
+	ID      string     `json:"id"`
+	Version int        `json:"v"`
+	Note    *iResponse `json:"d"`
 }
 
-func (api *Api) getNoteListRaw(mark string, since time.Time) (*apiNoteListResponse, error) {
-	authParam, err := api.getAuthUrlParams()
+type indexResponse struct {
+	Current string   `json:"current"`
+	Mark    string   `json:"mark"`
+	Index   []NoteID `json:"index"`
+}
+
+type Note struct {
+	ID               string
+	Version          int
+	Tags             []string
+	Deleted          bool
+	Content          string
+	SystemTags       []string
+	ModificationDate time.Time
+	CreationDate     time.Time
+}
+
+type iResponse struct {
+	Tags             []string    `json:"tags"`
+	Deleted          interface{} `json:"deleted"`
+	ShareURL         string      `json:"shareURL"`
+	PublishURL       string      `json:"publushURL"`
+	Content          string      `json:"content"`
+	SystemTags       []string    `json:"systemTags"`
+	ModificationDate float64     `json:"modificationDate"`
+	CreationDate     float64     `json:"creationDate"`
+}
+
+type Client struct {
+	user           string
+	pwd            string
+	simperiumToken string
+	appId          string
+	login          *loginResponse
+}
+
+func NewClient(simperiumToken, user, pwd string) *Client {
+	return &Client{
+		simperiumToken: simperiumToken,
+		user:           user,
+		pwd:            pwd,
+		appId:          simpleNoteAppId,
+	}
+}
+
+// e.g. /authorize/
+func (c *Client) authUrl(path string) string {
+	return authUrl2 + c.appId + path
+}
+
+// path must start with
+func (c *Client) apiUrl(path string, args ...string) string {
+	var urlArgs string
+	if len(args) > 0 {
+		if len(args)%2 != 0 {
+			panic("number of args must be even")
+		}
+		n := len(args) / 2
+		v := url.Values{}
+		for i := 0; i < n; i++ {
+			v.Add(args[i*2], args[i*2+1])
+		}
+		urlArgs = "?" + v.Encode()
+	}
+	uri := apiUrl2 + c.appId + "/" + bucketName + path + urlArgs
+	//fmt.Printf("uri: '%s'\n", uri)
+	return uri
+}
+
+func (c *Client) loginJson() string {
+	m := make(map[string]string)
+	m["username"] = c.user
+	m["password"] = c.pwd
+	d, _ := json.Marshal(m)
+	return string(d)
+}
+
+func (c *Client) loginIfNeeded() error {
+	if c.login != nil {
+		return nil
+	}
+	body := c.loginJson()
+	r := strings.NewReader(body)
+	uri := c.authUrl("/authorize/")
+	req, err := http.NewRequest("POST", uri, r)
+	if err != nil {
+		return err
+	}
+	req.Header.Add(apiKeyHeaderName, c.simperiumToken)
+	req.Header.Add("Content-Type", "application/json")
+	d, err := httpReadReq(req)
+	if err != nil {
+		return err
+	}
+	//fmt.Printf("auth response: '%s'\n", string(d))
+	var rsp loginResponse
+	err = json.Unmarshal(d, &rsp)
+	if err != nil {
+		return err
+	}
+	//fmt.Printf("%#v\n", rsp)
+	c.login = &rsp
+	return nil
+}
+
+func (c *Client) listRaw(mark string) (*indexResponse, error) {
+	err := c.loginIfNeeded()
 	if err != nil {
 		return nil, err
 	}
-	params := fmt.Sprintf("%s&length=%d", authParam, NotesPerRequestsCount)
-	if !since.IsZero() {
-		params += "&since=" + since.Format("2006-01-02")
-	}
+	args := []string{"limit", "100", "data", "1"}
 	if mark != "" {
-		params += fmt.Sprintf("&mark=%s", url.QueryEscape(mark))
+		args = append(args, "mark")
+		args = append(args, mark)
 	}
-
-	body, err := httpGetRetry(indexUrl + params)
+	uri := c.apiUrl("/index", args...)
+	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		return nil, err
 	}
-	var res apiNoteListResponse
-	//fmt.Printf("resp: \n%s\n", string(body))
-	err = json.Unmarshal(body, &res)
+	req.Header.Add(tokenHeaderName, c.login.AccessToken)
+	d, err := httpReadReq(req)
 	if err != nil {
 		return nil, err
 	}
-	return &res, nil
-}
-
-func reachedLimit(n, limit int) bool {
-	if limit == -1 {
-		return false
+	//fmt.Printf("list response: '%s'\n", string(d))
+	var v indexResponse
+	err = json.Unmarshal(d, &v)
+	if err != nil {
+		return nil, err
 	}
-	return n > limit
+	return &v, nil
 }
 
-// if limit is -1, no limit
-func (api *Api) GetNoteListWithLimit(limit int) ([]*NoteInfo, error) {
-	var zeroTime time.Time
-	res := make([]*NoteInfo, 0)
-	mark := ""
+func timeFromFloat(t float64) time.Time {
+	sec := int64(t)
+	nsec := int64(t*1e6) % 1e6
+	return time.Unix(sec, nsec)
+}
+
+func toBool(v interface{}) bool {
+	switch v := v.(type) {
+	case int:
+		if v == 0 {
+			return false
+		}
+		if v == 1 {
+			return true
+		}
+		log.Fatalf("invalid bool int value %d\n", v)
+	case float64:
+		if int(v) == 0 {
+			return false
+		}
+		if int(v) == 1 {
+			return true
+		}
+		log.Fatalf("invalid float64 value %.2f\n", v)
+	case bool:
+		return v
+	default:
+		log.Fatalf("unexpected type %T\n", v)
+	}
+	return false
+}
+
+func (c *Client) List() ([]*Note, error) {
+	var res []*Note
+	var mark string
 	for {
-		rsp, err := api.getNoteListRaw(mark, zeroTime)
+		curr, err := c.listRaw(mark)
 		if err != nil {
-			// TODO: return as much as we got?
 			return nil, err
 		}
-		for _, ani := range rsp.Data {
-			res = append(res, ani.toNoteInfo())
-			if reachedLimit(len(res), limit) {
-				return res, nil
-			}
+		for _, n := range curr.Index {
+			res = append(res, toNote(n.ID, n.Version, n.Note))
 		}
-		mark = rsp.Mark
+		mark = curr.Mark
 		if mark == "" {
 			break
 		}
-		// TODO: also break if len(rsp.Data) == 0 ?
 	}
 	return res, nil
 }
 
-func (api *Api) GetNoteList() ([]*NoteInfo, error) {
-	return api.GetNoteListWithLimit(-1)
+func toNote(id string, version int, v *iResponse) *Note {
+	return &Note{
+		ID:               id,
+		Version:          version,
+		Tags:             v.Tags,
+		Deleted:          toBool(v.Deleted),
+		Content:          v.Content,
+		SystemTags:       v.SystemTags,
+		ModificationDate: timeFromFloat(v.ModificationDate),
+		CreationDate:     timeFromFloat(v.CreationDate),
+	}
 }
 
-// if version is -1, return latest version
-func (api *Api) getNoteRaw(key string, version int) (*apiNote, error) {
-	authParam, err := api.getAuthUrlParams()
+func (c *Client) GetNote(noteId string, version int) (*Note, error) {
+	err := c.loginIfNeeded()
 	if err != nil {
 		return nil, err
 	}
-	ver := ""
-	if version != -1 {
-		ver = fmt.Sprintf("/%d", version)
-	}
-	params := fmt.Sprintf("/%s%s?%s", key, ver, authParam)
-	body, err := httpGet(dataUrl + params)
+	uri := c.apiUrl(fmt.Sprintf("/i/%s/v/%d", noteId, version))
+	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		return nil, err
 	}
-	var res apiNote
-	err = json.Unmarshal(body, &res)
+	req.Header.Add(tokenHeaderName, c.login.AccessToken)
+	d, err := httpReadReq(req)
 	if err != nil {
 		return nil, err
 	}
-	//fmt.Printf("creation date: %s\n", res.CreateDate)
-	return &res, nil
-}
-
-func (api *Api) GetNote(key string, version int) (*Note, error) {
-	note, err := api.getNoteRaw(key, version)
+	//fmt.Printf("resp: '%s'\n", string(d))
+	var v iResponse
+	err = json.Unmarshal(d, &v)
 	if err != nil {
+		log.Fatalf("failed to unmarshal '%s' with '%s'\n", string(d), err)
 		return nil, err
 	}
-	return note.toNote(), nil
-}
 
-func (api *Api) GetNoteLatestVersion(key string) (*Note, error) {
-	return api.GetNote(key, -1)
-}
-
-// TODO: change note to map[string]interface{}
-func (api *Api) addUpdateNoteRaw(update map[string]interface{}) (*Note, error) {
-	var ok bool
-	authParam, err := api.getAuthUrlParams()
-	if err != nil {
-		return nil, err
-	}
-	var urlStr string
-	keyI, hasKey := update["key"]
-	key := ""
-	if hasKey {
-		key, ok = keyI.(string)
-		if !ok {
-			v := update["key"]
-			return nil, fmt.Errorf("%T %v is not string", v, v)
-		}
-	}
-	content, hasContent := update["content"]
-	if key != "" {
-		// this is update, so set modifydate
-		update["modifydate"] = timeToStr(time.Now())
-		urlStr = dataUrl + "/" + key + "?" + authParam
-	} else {
-		urlStr = dataUrl + "?" + authParam
-	}
-
-	js, err := json.Marshal(update)
-	if err != nil {
-		return nil, err
-	}
-	//fmt.Printf("url: %q\n js:\n%s\n", urlStr, string(js))
-	// Note: python version does urllib.quote(values)
-	s := url.QueryEscape(string(js))
-	d, err := httpPost(urlStr, s)
-	if err != nil {
-		//fmt.Printf("getToken: httpPost(%q,%q) failed with %q\n", authUrl, values, err)
-		return nil, err
-	}
-	//fmt.Printf("%s\n", string(d))
-	// TODO: write a function for that?
-	var res apiNote
-	err = json.Unmarshal(d, &res)
-	if err != nil {
-		return nil, err
-	}
-	// returned json response doesn't return the content, so set it to
-	// what we've sent
-	if hasContent {
-		res.Content = content.(string)
-	}
-	return res.toNote(), nil
-}
-
-func (api *Api) AddNote(content string, tags []string) (*Note, error) {
-	update := make(map[string]interface{})
-	update["content"] = content
-	if len(tags) > 0 {
-		update["tags"] = tags
-	}
-	return api.addUpdateNoteRaw(update)
-}
-
-func (api *Api) UpdateContent(key string, content string) error {
-	update := make(map[string]interface{})
-	update["key"] = key
-	update["content"] = content
-	_, err := api.addUpdateNoteRaw(update)
-	return err
-}
-
-func (api *Api) UpdateTags(key string, tags []string) error {
-	update := make(map[string]interface{})
-	update["key"] = key
-	update["tags"] = tags
-	_, err := api.addUpdateNoteRaw(update)
-	return err
-}
-
-func (api *Api) TrashNote(key string) (*Note, error) {
-	n, err := api.GetNoteLatestVersion(key)
-	if err != nil {
-		return nil, err
-	}
-	if n.IsDeleted {
-		return n, nil
-	}
-	update := make(map[string]interface{})
-	update["key"] = key
-	update["deleted"] = 1
-	return api.addUpdateNoteRaw(update)
-}
-
-func (api *Api) RestoreNote(key string) (*Note, error) {
-	n, err := api.GetNoteLatestVersion(key)
-	if err != nil {
-		return nil, err
-	}
-	if !n.IsDeleted {
-		return n, nil
-	}
-	update := make(map[string]interface{})
-	update["key"] = key
-	update["deleted"] = 0
-	return api.addUpdateNoteRaw(update)
-}
-
-func (api *Api) DeleteNote(key string) error {
-	// according to python version, the note must first be trash
-	_, err := api.TrashNote(key)
-	if err != nil {
-		return err
-	}
-
-	authParam, err := api.getAuthUrlParams()
-	if err != nil {
-		return err
-	}
-
-	urlStr := dataUrl + fmt.Sprintf("/%s?%s", key, authParam)
-	return httpDeleteRetry(urlStr)
+	return toNote(noteId, version, &v), nil
 }
