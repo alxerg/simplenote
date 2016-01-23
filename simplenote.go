@@ -15,21 +15,72 @@ import (
 )
 
 const (
-	simpleNoteAppId  = "chalk-bump-f49"
-	authUrl2         = "https://auth.simperium.com/1/"
-	apiUrl2          = "https://api.simperium.com/1/"
+	simpleNoteAppID  = "chalk-bump-f49"
+	authURL2         = "https://auth.simperium.com/1/"
+	apiURL2          = "https://api.simperium.com/1/"
 	tokenHeaderName  = "X-Simperium-Token"
 	apiKeyHeaderName = "X-Simperium-API-Key"
 	bucketName       = "Note"
 )
+
+// Note describes a single note
+type Note struct {
+	ID               string
+	Version          int
+	Tags             []string `json:",omitempty"`
+	Deleted          bool
+	Content          string
+	SystemTags       []string `json:",omitempty"`
+	ModificationDate time.Time
+	CreationDate     time.Time
+}
+
+// NoteID describes a version of a note
+type NoteID struct {
+	ID      string     `json:"id"`
+	Version int        `json:"v"`
+	Note    *iResponse `json:"d"`
+}
+
+type indexResponse struct {
+	Current string   `json:"current"`
+	Mark    string   `json:"mark"`
+	Index   []NoteID `json:"index"`
+}
+
+type iResponse struct {
+	Tags             []string    `json:"tags"`
+	Deleted          interface{} `json:"deleted"`
+	ShareURL         string      `json:"shareURL"`
+	PublishURL       string      `json:"publishURL"`
+	Content          string      `json:"content"`
+	SystemTags       []string    `json:"systemTags"`
+	ModificationDate float64     `json:"modificationDate"`
+	CreationDate     float64     `json:"creationDate"`
+}
+
+type loginResponse struct {
+	UserName    string `json:"username"`
+	AccessToken string `json:"access_token"`
+	UserID      string `json:"userid"`
+}
+
+// Client describes SimpleNote client
+type Client struct {
+	user           string
+	pwd            string
+	simperiumToken string
+	appID          string
+	login          *loginResponse
+}
 
 func timeToStr(t time.Time) string {
 	f := float64(t.UnixNano()) / 1000000000
 	return fmt.Sprintf("%.9f", f)
 }
 
-func httpGet2(u string) (int, []byte, error) {
-	resp, err := http.Get(u)
+func httpGet2(uri string) (int, []byte, error) {
+	resp, err := http.Get(uri)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -60,19 +111,19 @@ func httpReadReq(req *http.Request) ([]byte, error) {
 	return d, nil
 }
 
-func httpGet(u string) ([]byte, error) {
-	statusCode, d, err := httpGet2(u)
+func httpGet(uri string) ([]byte, error) {
+	statusCode, d, err := httpGet2(uri)
 	if err != nil {
 		return nil, err
 	}
 	if statusCode != 200 {
-		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, u)
+		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, uri)
 	}
 	return d, nil
 }
 
-func httpGetRetry(u string) ([]byte, error) {
-	statusCode, d, err := httpGet2(u)
+func httpGetRetry(uri string) ([]byte, error) {
+	statusCode, d, err := httpGet2(uri)
 	if err != nil {
 		return nil, err
 	}
@@ -81,25 +132,25 @@ func httpGetRetry(u string) ([]byte, error) {
 		// unfortunately, simplenote requires this ridiculosly long backoff
 		// time aftar a failing request
 		time.Sleep(time.Second * 30)
-		statusCode, d, err = httpGet2(u)
+		statusCode, d, err = httpGet2(uri)
 	}
 	if statusCode != 200 {
-		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, u)
+		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, uri)
 	}
 	return d, nil
 }
 
-func httpPost(u string, body string) ([]byte, error) {
+func httpPost(uri string, body string) ([]byte, error) {
 	r := strings.NewReader(body)
-	req, err := http.NewRequest("POST", u, r)
+	req, err := http.NewRequest("POST", uri, r)
 	if err != nil {
 		return nil, err
 	}
 	return httpReadReq(req)
 }
 
-func httpDelete2(urlStr string) (int, error) {
-	req, err := http.NewRequest("DELETE", urlStr, nil)
+func httpDelete2(uri string) (int, error) {
+	req, err := http.NewRequest("DELETE", uri, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -110,20 +161,20 @@ func httpDelete2(urlStr string) (int, error) {
 	return resp.StatusCode, nil
 }
 
-func httpDelete(urlStr string) error {
+func httpDelete(uri string) error {
 	//fmt.Printf("%#v\n", resp)
-	statusCode, err := httpDelete2(urlStr)
+	statusCode, err := httpDelete2(uri)
 	if err != nil {
 		return err
 	}
 	if statusCode != 200 {
-		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, urlStr)
+		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, uri)
 	}
 	return nil
 }
 
-func httpDeleteRetry(urlStr string) error {
-	statusCode, err := httpDelete2(urlStr)
+func httpDeleteRetry(uri string) error {
+	statusCode, err := httpDelete2(uri)
 	if err != nil {
 		return err
 	}
@@ -131,78 +182,31 @@ func httpDeleteRetry(urlStr string) error {
 		// unfortunately, simplenote requires this ridiculosly long backoff
 		// time aftar a failing request
 		time.Sleep(time.Second * 30)
-		statusCode, err = httpDelete2(urlStr)
+		statusCode, err = httpDelete2(uri)
 	}
 	if statusCode != 200 {
-		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, urlStr)
+		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, uri)
 	}
 	return nil
 }
 
-type loginResponse struct {
-	UserName    string `json:"username"`
-	AccessToken string `json:"access_token"`
-	UserID      string `json:"userid"`
-}
-
-type NoteID struct {
-	ID      string     `json:"id"`
-	Version int        `json:"v"`
-	Note    *iResponse `json:"d"`
-}
-
-type indexResponse struct {
-	Current string   `json:"current"`
-	Mark    string   `json:"mark"`
-	Index   []NoteID `json:"index"`
-}
-
-type Note struct {
-	ID               string
-	Version          int
-	Tags             []string
-	Deleted          bool
-	Content          string
-	SystemTags       []string
-	ModificationDate time.Time
-	CreationDate     time.Time
-}
-
-type iResponse struct {
-	Tags             []string    `json:"tags"`
-	Deleted          interface{} `json:"deleted"`
-	ShareURL         string      `json:"shareURL"`
-	PublishURL       string      `json:"publushURL"`
-	Content          string      `json:"content"`
-	SystemTags       []string    `json:"systemTags"`
-	ModificationDate float64     `json:"modificationDate"`
-	CreationDate     float64     `json:"creationDate"`
-}
-
-type Client struct {
-	user           string
-	pwd            string
-	simperiumToken string
-	appId          string
-	login          *loginResponse
-}
-
+// NewClient creates a new SimpleNote client
 func NewClient(simperiumToken, user, pwd string) *Client {
 	return &Client{
 		simperiumToken: simperiumToken,
 		user:           user,
 		pwd:            pwd,
-		appId:          simpleNoteAppId,
+		appID:          simpleNoteAppID,
 	}
 }
 
 // e.g. /authorize/
-func (c *Client) authUrl(path string) string {
-	return authUrl2 + c.appId + path
+func (c *Client) authURL(path string) string {
+	return authURL2 + c.appID + path
 }
 
 // path must start with
-func (c *Client) apiUrl(path string, args ...string) string {
+func (c *Client) apiURL(path string, args ...string) string {
 	var urlArgs string
 	if len(args) > 0 {
 		if len(args)%2 != 0 {
@@ -215,12 +219,12 @@ func (c *Client) apiUrl(path string, args ...string) string {
 		}
 		urlArgs = "?" + v.Encode()
 	}
-	uri := apiUrl2 + c.appId + "/" + bucketName + path + urlArgs
+	uri := apiURL2 + c.appID + "/" + bucketName + path + urlArgs
 	//fmt.Printf("uri: '%s'\n", uri)
 	return uri
 }
 
-func (c *Client) loginJson() string {
+func (c *Client) loginJSON() string {
 	m := make(map[string]string)
 	m["username"] = c.user
 	m["password"] = c.pwd
@@ -232,9 +236,9 @@ func (c *Client) loginIfNeeded() error {
 	if c.login != nil {
 		return nil
 	}
-	body := c.loginJson()
+	body := c.loginJSON()
 	r := strings.NewReader(body)
-	uri := c.authUrl("/authorize/")
+	uri := c.authURL("/authorize/")
 	req, err := http.NewRequest("POST", uri, r)
 	if err != nil {
 		return err
@@ -266,7 +270,7 @@ func (c *Client) listRaw(mark string) (*indexResponse, error) {
 		args = append(args, "mark")
 		args = append(args, mark)
 	}
-	uri := c.apiUrl("/index", args...)
+	uri := c.apiURL("/index", args...)
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		return nil, err
@@ -317,6 +321,7 @@ func toBool(v interface{}) bool {
 	return false
 }
 
+// List lists notes
 func (c *Client) List() ([]*Note, error) {
 	var res []*Note
 	var mark string
@@ -349,12 +354,13 @@ func toNote(id string, version int, v *iResponse) *Note {
 	}
 }
 
-func (c *Client) GetNote(noteId string, version int) (*Note, error) {
+// GetNote downloads a note
+func (c *Client) GetNote(noteID string, version int) (*Note, error) {
 	err := c.loginIfNeeded()
 	if err != nil {
 		return nil, err
 	}
-	uri := c.apiUrl(fmt.Sprintf("/i/%s/v/%d", noteId, version))
+	uri := c.apiURL(fmt.Sprintf("/i/%s/v/%d", noteID, version))
 	req, err := http.NewRequest("GET", uri, nil)
 	if err != nil {
 		return nil, err
@@ -372,5 +378,5 @@ func (c *Client) GetNote(noteId string, version int) (*Note, error) {
 		return nil, err
 	}
 
-	return toNote(noteId, version, &v), nil
+	return toNote(noteID, version, &v), nil
 }
