@@ -22,7 +22,6 @@ var (
 	flgAllVersions = false
 	flgVerbose     = false
 	fileName       = "notes.json"
-	file           *os.File
 	previousNotes  map[string]bool
 )
 
@@ -76,7 +75,7 @@ func parseFlags() {
 	flag.Parse()
 }
 
-func writeNote(note *simplenote.Note) {
+func writeNote(file *os.File, note *simplenote.Note) {
 	if wasImported(note) {
 		return
 	}
@@ -127,7 +126,7 @@ func main() {
 		usage()
 		return
 	}
-	file, err := os.OpenFile(fileName, O_WRONLY | O_APPEND | O_CREATE, 0644)
+	file, err := os.OpenFile(fileName, os.O_WRONLY | os.O_APPEND | os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalf("os.OpenFile('%s') failed with '%s'\n", fileName, err)
 	}
@@ -144,7 +143,7 @@ func main() {
 		log.Fatalf("c.List() failed with '%s'\n", err)
 	}
 	for _, note := range notes {
-		writeNote(note)
+		writeNote(file, note)
 		if !flgAllVersions {
 			continue
 		}
@@ -161,7 +160,7 @@ func main() {
 				// a way to list versions
 				log.Printf("api.GetNote() failed with '%s'\n", err)
 			} else {
-				writeNote(n)
+				writeNote(file, n)
 			}
 			ver--
 		}
