@@ -87,7 +87,7 @@ func writeNote(note *simplenote.Note) {
 	d = append(d, '\n')
 	_, err = file.Write(d)
 	if err != nil {
-		log.Fatalf("os.Stdout.Write() failed with '%s'\n", err)
+		log.Fatalf("file.Write() failed with '%s'\n", err)
 	}
 }
 
@@ -106,7 +106,9 @@ func newLogger(path string) *logger {
 }
 
 func (l *logger) Log(s string) {
-	fmt.Print(s)
+	if l != nil && l.file != nil {
+		l.file.WriteString(s)
+	}
 }
 
 func (l *logger) Close() {
@@ -125,6 +127,11 @@ func main() {
 		usage()
 		return
 	}
+	file, err := os.OpenFile(fileName, O_WRONLY | O_APPEND | O_CREATE, 0644)
+	if err != nil {
+		log.Fatalf("os.OpenFile('%s') failed with '%s'\n", fileName, err)
+	}
+	defer file.Close()
 	client = simplenote.NewClient(args[0], args[1], args[2])
 	lgr := newLogger("log.txt")
 	defer lgr.Close()
