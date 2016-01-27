@@ -27,7 +27,7 @@ var (
 )
 
 func init() {
-	previousNotes = make(map[string]bool
+	previousNotes = make(map[string]bool)
 }
 
 func usage() {
@@ -35,19 +35,19 @@ func usage() {
 }
 
 func key(id string, version int) string {
-  return fmt.Sprintf("%s-%d", id, version)
+	return fmt.Sprintf("%s-%d", id, version)
 }
 
 func noteKey(n *simplenote.Note) string {
-  return key(n.ID, n.Version)
+	return key(n.ID, n.Version)
 }
 
 func wasImported(n *simplenote.Note) bool {
-  return previousNotes[noteKey(n)]
+	return previousNotes[noteKey(n)]
 }
 
 func wasImported2(id string, version int) bool {
-  return previousNotes[key(id, version)]
+	return previousNotes[key(id, version)]
 }
 
 func loadPreviousNotes() error {
@@ -66,7 +66,7 @@ func loadPreviousNotes() error {
 			}
 			return err
 		}
-    previusNotes[noteKey(n)] = true
+		previousNotes[noteKey(&n)] = true
 	}
 }
 
@@ -77,9 +77,9 @@ func parseFlags() {
 }
 
 func writeNote(note *simplenote.Note) {
-  if wasImported(note) {
-    return
-  }
+	if wasImported(note) {
+		return
+	}
 	d, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
 		log.Fatalf("json.MarshalIndent() failed with '%s'\n", err)
@@ -96,6 +96,7 @@ type logger struct {
 }
 
 func newLogger(path string) *logger {
+	var err error
 	l := &logger{}
 	l.file, err = os.Create(path)
 	if err != nil {
@@ -143,10 +144,10 @@ func main() {
 		ver := note.Version - 1
 		id := note.ID
 		for ver > 0 {
-      if wasImported2(id, ver) {
-        ver--
-        continue
-      }
+			if wasImported2(id, ver) {
+				ver--
+				continue
+			}
 			n, err := client.GetNote(id, ver)
 			if err != nil {
 				// sometimes older versions don't exist. there doesn't seeme to be

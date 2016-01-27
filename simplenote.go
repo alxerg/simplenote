@@ -207,9 +207,9 @@ func NewClient(simperiumToken, user, pwd string) *Client {
 }
 
 func (c *Client) logRaw(format string, args ...interface{}) {
-	if c.logger != nil {
+	if c.Logger != nil {
 		s := fmt.Sprintf(format, args...)
-		c.logger.Log(s)
+		c.Logger.Log(s)
 	}
 }
 
