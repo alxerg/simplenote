@@ -23,6 +23,11 @@ const (
 	bucketName       = "Note"
 )
 
+// RawLogger is for logging raw HTTP interactions
+type RawLogger interface {
+	Log(s string)
+}
+
 // Note describes a single note
 type Note struct {
 	ID               string
@@ -72,6 +77,7 @@ type Client struct {
 	simperiumToken string
 	appID          string
 	login          *loginResponse
+	logger         RawLogger
 }
 
 func timeToStr(t time.Time) string {
@@ -200,6 +206,13 @@ func NewClient(simperiumToken, user, pwd string) *Client {
 	}
 }
 
+func (c *Client) logRaw(format string, args ...interface{}) {
+	if c.logger != nil {
+		s := fmt.Sprintf(format, args...)
+		c.logger.Log(s)
+	}
+}
+
 // e.g. /authorize/
 func (c *Client) authURL(path string) string {
 	return authURL2 + c.appID + path
@@ -249,6 +262,7 @@ func (c *Client) loginIfNeeded() error {
 	if err != nil {
 		return err
 	}
+	c.logRaw("%s\n%s\n\n", uri, string(d))
 	//fmt.Printf("auth response: '%s'\n", string(d))
 	var rsp loginResponse
 	err = json.Unmarshal(d, &rsp)
@@ -280,6 +294,7 @@ func (c *Client) listRaw(mark string) (*indexResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.logRaw("%s\n%s\n\n", uri, string(d))
 	//fmt.Printf("list response: '%s'\n", string(d))
 	var v indexResponse
 	err = json.Unmarshal(d, &v)
@@ -370,6 +385,7 @@ func (c *Client) GetNote(noteID string, version int) (*Note, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.logRaw("%s\n%s\n\n", uri, string(d))
 	//fmt.Printf("resp: '%s'\n", string(d))
 	var v iResponse
 	err = json.Unmarshal(d, &v)
