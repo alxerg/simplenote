@@ -30,38 +30,32 @@ type RawLogger interface {
 
 // Note describes a single note
 type Note struct {
-	ID               string
-	Version          int
-	Tags             []string `json:",omitempty"`
-	Deleted          bool
-	Content          string
-	SystemTags       []string `json:",omitempty"`
-	ModificationDate time.Time
-	CreationDate     time.Time
+	ID         string      `json:"id"`
+	Version    int         `json:"v"`
+	Tags       []string    `json:"tags,omitempty"`
+	IsDeleted  bool        `json:"-"`
+	Deleted    interface{} `json:"deleted"`
+	ShareURL   string      `json:"shareURL,omitempty"`
+	PublishURL string      `json:"publishURL,omitempty"`
+	Content    string      `json:"content"`
+	// known system tags: markdown, published, pinned
+	SystemTags            []string  `json:"systemTags,omitempty"`
+	ModificationDateFloat float64   `json:"modificationDate"`
+	CreationDateFloat     float64   `json:"creationDate"`
+	ModificationDate      time.Time `json:"-"`
+	CreationDate          time.Time `json:"-"`
 }
 
-// NoteID describes a version of a note
-type NoteID struct {
-	ID      string     `json:"id"`
-	Version int        `json:"v"`
-	Note    *iResponse `json:"d"`
+type noteData struct {
+	Note    *Note  `json:"d"`
+	ID      string `json:"id"`
+	Version int    `json:"v"`
 }
 
 type indexResponse struct {
-	Current string   `json:"current"`
-	Mark    string   `json:"mark"`
-	Index   []NoteID `json:"index"`
-}
-
-type iResponse struct {
-	Tags             []string    `json:"tags"`
-	Deleted          interface{} `json:"deleted"`
-	ShareURL         string      `json:"shareURL"`
-	PublishURL       string      `json:"publishURL"`
-	Content          string      `json:"content"`
-	SystemTags       []string    `json:"systemTags"`
-	ModificationDate float64     `json:"modificationDate"`
-	CreationDate     float64     `json:"creationDate"`
+	Current string      `json:"current"`
+	Mark    string      `json:"mark"`
+	Notes   []*noteData `json:"index"`
 }
 
 type loginResponse struct {
@@ -128,24 +122,6 @@ func httpGet(uri string) ([]byte, error) {
 	return d, nil
 }
 
-func httpGetRetry(uri string) ([]byte, error) {
-	statusCode, d, err := httpGet2(uri)
-	if err != nil {
-		return nil, err
-	}
-	if statusCode == 500 {
-		//fmt.Printf("Retrying %q\n", u)
-		// unfortunately, simplenote requires this ridiculosly long backoff
-		// time aftar a failing request
-		time.Sleep(time.Second * 30)
-		statusCode, d, err = httpGet2(uri)
-	}
-	if statusCode != 200 {
-		return nil, fmt.Errorf("GET: status code %d (not 200) for %q", statusCode, uri)
-	}
-	return d, nil
-}
-
 func httpPost(uri string, body string) ([]byte, error) {
 	r := strings.NewReader(body)
 	req, err := http.NewRequest("POST", uri, r)
@@ -172,23 +148,6 @@ func httpDelete(uri string) error {
 	statusCode, err := httpDelete2(uri)
 	if err != nil {
 		return err
-	}
-	if statusCode != 200 {
-		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, uri)
-	}
-	return nil
-}
-
-func httpDeleteRetry(uri string) error {
-	statusCode, err := httpDelete2(uri)
-	if err != nil {
-		return err
-	}
-	if statusCode == 500 {
-		// unfortunately, simplenote requires this ridiculosly long backoff
-		// time aftar a failing request
-		time.Sleep(time.Second * 30)
-		statusCode, err = httpDelete2(uri)
 	}
 	if statusCode != 200 {
 		return fmt.Errorf("DELETE status code %d (not 200) url: %q", statusCode, uri)
@@ -310,33 +269,49 @@ func timeFromFloat(t float64) time.Time {
 	return time.Unix(sec, nsec)
 }
 
-func toBool(v interface{}) bool {
+func toBool(v interface{}) (bool, error) {
 	switch v := v.(type) {
 	case int:
 		if v == 0 {
-			return false
+			return false, nil
 		}
 		if v == 1 {
-			return true
+			return true, nil
 		}
-		log.Fatalf("invalid bool int value %d\n", v)
+		return false, fmt.Errorf("invalid bool int value %d\n", v)
 	case float64:
 		if int(v) == 0 {
-			return false
+			return false, nil
 		}
 		if int(v) == 1 {
-			return true
+			return true, nil
 		}
-		log.Fatalf("invalid float64 value %.2f\n", v)
+		return false, fmt.Errorf("invalid float64 value %.2f\n", v)
 	case bool:
-		return v
+		return v, nil
 	default:
-		log.Fatalf("unexpected type %T\n", v)
+		return false, fmt.Errorf("unexpected type %T\n", v)
 	}
-	return false
 }
 
-// List lists notes
+func updateNote(n *Note) {
+	var err error
+	n.IsDeleted, err = toBool(n.Deleted)
+	if false && err != nil {
+		log.Fatalf("Note: %v\ntoBool(%v) failed with '%s'\n", n, n.Deleted, err)
+	}
+	n.ModificationDate = timeFromFloat(n.ModificationDateFloat)
+	n.CreationDate = timeFromFloat(n.CreationDateFloat)
+}
+
+func updateNoteData(nd *noteData) {
+	n := nd.Note
+	n.ID = nd.ID
+	n.Version = nd.Version
+	updateNote(n)
+}
+
+// List lists most recent versions of notes
 func (c *Client) List() ([]*Note, error) {
 	var res []*Note
 	var mark string
@@ -345,8 +320,13 @@ func (c *Client) List() ([]*Note, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, n := range curr.Index {
-			res = append(res, toNote(n.ID, n.Version, n.Note))
+		for _, nd := range curr.Notes {
+			updateNoteData(nd)
+			n := nd.Note
+			if n.ID == "" {
+				log.Fatalf("n.ID is empty on %v\n", n)
+			}
+			res = append(res, n)
 		}
 		mark = curr.Mark
 		if mark == "" {
@@ -356,20 +336,7 @@ func (c *Client) List() ([]*Note, error) {
 	return res, nil
 }
 
-func toNote(id string, version int, v *iResponse) *Note {
-	return &Note{
-		ID:               id,
-		Version:          version,
-		Tags:             v.Tags,
-		Deleted:          toBool(v.Deleted),
-		Content:          v.Content,
-		SystemTags:       v.SystemTags,
-		ModificationDate: timeFromFloat(v.ModificationDate),
-		CreationDate:     timeFromFloat(v.CreationDate),
-	}
-}
-
-// GetNote downloads a note
+// GetNote downloads a specific version of the note
 func (c *Client) GetNote(noteID string, version int) (*Note, error) {
 	err := c.loginIfNeeded()
 	if err != nil {
@@ -387,12 +354,14 @@ func (c *Client) GetNote(noteID string, version int) (*Note, error) {
 	}
 	c.logRaw("%s\n%s\n\n", uri, string(d))
 	//fmt.Printf("resp: '%s'\n", string(d))
-	var v iResponse
-	err = json.Unmarshal(d, &v)
+	var n Note
+	err = json.Unmarshal(d, &n)
 	if err != nil {
-		log.Fatalf("failed to unmarshal '%s' with '%s'\n", string(d), err)
+		//log.Fatalf("failed to unmarshal '%s' with '%s'\n", string(d), err)
 		return nil, err
 	}
-
-	return toNote(noteID, version, &v), nil
+	n.Version = version
+	n.ID = noteID
+	updateNote(&n)
+	return &n, nil
 }

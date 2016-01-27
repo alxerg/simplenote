@@ -75,9 +75,9 @@ func parseFlags() {
 	flag.Parse()
 }
 
-func writeNote(file *os.File, note *simplenote.Note) {
+func writeNote(file *os.File, note *simplenote.Note) bool {
 	if wasImported(note) {
-		return
+		return false
 	}
 	d, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
@@ -88,6 +88,7 @@ func writeNote(file *os.File, note *simplenote.Note) {
 	if err != nil {
 		log.Fatalf("file.Write() failed with '%s'\n", err)
 	}
+	return true
 }
 
 type logger struct {
@@ -121,12 +122,13 @@ func main() {
 	var client *simplenote.Client
 	parseFlags()
 	args := flag.Args()
-	loadPreviousNotes()
 	if len(args) != 3 {
 		usage()
 		return
 	}
-	file, err := os.OpenFile(fileName, os.O_WRONLY | os.O_APPEND | os.O_CREATE, 0644)
+	loadPreviousNotes()
+	fmt.Printf("all versions: %v. Previously loaded: %d\n", flgAllVersions, len(previousNotes))
+	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalf("os.OpenFile('%s') failed with '%s'\n", fileName, err)
 	}
@@ -142,8 +144,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("c.List() failed with '%s'\n", err)
 	}
+	nNotes := 0
+	nNotesTotal := 0
+	nVersions := 0
+	nVersionsTotal := 0
 	for _, note := range notes {
-		writeNote(file, note)
+		didWrite := writeNote(file, note)
+		nNotesTotal++
+		if didWrite {
+			nNotes++
+		}
 		if !flgAllVersions {
 			continue
 		}
@@ -151,18 +161,30 @@ func main() {
 		id := note.ID
 		for ver > 0 {
 			if wasImported2(id, ver) {
+				nVersionsTotal++
 				ver--
 				continue
 			}
 			n, err := client.GetNote(id, ver)
 			if err != nil {
 				// sometimes older versions don't exist. there doesn't seeme to be
-				// a way to list versions
-				log.Printf("api.GetNote() failed with '%s'\n", err)
+				// a way to list valid versions
+				//log.Printf("api.GetNote() failed with '%s'\n", err)
 			} else {
-				writeNote(file, n)
+				nVersionsTotal++
+				nVersions++
+				didWrite = writeNote(file, n)
+				if !didWrite {
+					log.Fatalf("unexpectedly didWrite on note %v\n", n)
+				}
 			}
 			ver--
 		}
+	}
+	if flgAllVersions {
+		fmt.Printf("Imported %d new notes and %d new versions, %d total notes, %d total versions\n", nNotes, nVersions, nNotesTotal, nVersionsTotal)
+
+	} else {
+		fmt.Printf("Imported %d new notes, %d total notes\n", nNotes, nNotesTotal)
 	}
 }

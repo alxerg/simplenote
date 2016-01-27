@@ -71,8 +71,8 @@ func main() {
 			n, err := client.GetNote(id, ver)
 			if err != nil {
 				// sometimes older versions don't exist. there doesn't seeme to be
-				// a way to list versions
-				log.Printf("api.GetNote() failed with '%s'\n", err)
+				// a way to list valid versions
+				//log.Printf("api.GetNote() failed with '%s'\n", err)
 			} else {
 				printNote(n)
 			}

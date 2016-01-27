@@ -23,3 +23,6 @@ _testmain.go
 *.test
 
 download_all/download_all
+download_incremental/download_incremental
+log.txt
+notes.json
