@@ -77,7 +77,7 @@ type Client struct {
 	simperiumToken string
 	appID          string
 	login          *loginResponse
-	logger         RawLogger
+	Logger         RawLogger
 }
 
 func timeToStr(t time.Time) string {
