@@ -166,19 +166,19 @@ func main() {
 				continue
 			}
 			n, err := client.GetNote(id, ver)
+			ver--
 			if err != nil {
 				// sometimes older versions don't exist. there doesn't seeme to be
 				// a way to list valid versions
 				//log.Printf("api.GetNote() failed with '%s'\n", err)
-			} else {
-				nVersionsTotal++
-				nVersions++
-				didWrite = writeNote(file, n)
-				if !didWrite {
-					log.Fatalf("unexpectedly didWrite on note %v\n", n)
-				}
+				continue
 			}
-			ver--
+			nVersionsTotal++
+			nVersions++
+			didWrite = writeNote(file, n)
+			if !didWrite {
+				log.Fatalf("unexpectedly didWrite on note %v\n", n)
+			}
 		}
 	}
 	if flgAllVersions {
