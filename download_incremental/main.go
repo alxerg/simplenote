@@ -151,7 +151,7 @@ func main() {
 	for _, note := range notes {
 		id := note.ID
 
-		if !flgAllVersions {
+		if flgAllVersions {
 			for ver := 1; ver < note.Version; ver++ {
 				if wasImported2(id, ver) {
 					nVersionsTotal++
