@@ -149,36 +149,33 @@ func main() {
 	nVersions := 0
 	nVersionsTotal := 0
 	for _, note := range notes {
+		id := note.ID
+
+		if !flgAllVersions {
+			for ver := 1; ver < note.Version; ver++ {
+				if wasImported2(id, ver) {
+					nVersionsTotal++
+					continue
+				}
+				n, err := client.GetNote(id, ver)
+				if err != nil {
+					// sometimes older versions don't exist. there doesn't seeme to be
+					// a way to list valid versions
+					//log.Printf("api.GetNote() failed with '%s'\n", err)
+					continue
+				}
+				nVersionsTotal++
+				nVersions++
+				didWrite := writeNote(file, n)
+				if !didWrite {
+					log.Fatalf("unexpectedly didWrite on note %v\n", n)
+				}
+			}
+		}
 		didWrite := writeNote(file, note)
 		nNotesTotal++
 		if didWrite {
 			nNotes++
-		}
-		if !flgAllVersions {
-			continue
-		}
-		ver := note.Version - 1
-		id := note.ID
-		for ver > 0 {
-			if wasImported2(id, ver) {
-				nVersionsTotal++
-				ver--
-				continue
-			}
-			n, err := client.GetNote(id, ver)
-			ver--
-			if err != nil {
-				// sometimes older versions don't exist. there doesn't seeme to be
-				// a way to list valid versions
-				//log.Printf("api.GetNote() failed with '%s'\n", err)
-				continue
-			}
-			nVersionsTotal++
-			nVersions++
-			didWrite = writeNote(file, n)
-			if !didWrite {
-				log.Fatalf("unexpectedly didWrite on note %v\n", n)
-			}
 		}
 	}
 	if flgAllVersions {
